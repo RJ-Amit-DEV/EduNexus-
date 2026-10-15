@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  PARENT
+  ADMIN
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+enum SubmissionStatus {
+  PENDING
+  SUBMITTED
+  GRADED
+  LATE
+}
+
+enum DoubtStatus {
+  OPEN
+  AI_ANSWERED
+  TEACHER_REVIEWED
+  RESOLVED
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  passwordHash   String
+  role           Role      @default(STUDENT)
+  gradeLevel     String?
+  department     String?
+  subject        String?
+  studentLinkKey String?
+  avatarUrl      String?
+  phone          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Parent-Student Relationships
+  children      User[]    @relation("ParentChild")
+  parents       User[]    @relation("ParentChild")
+
+  // Teacher relationships
+  taughtClasses Class[]   @relation("TeacherClasses")
+  createdQuizzes Quiz[]   @relation("TeacherQuizzes")
+
+  // Student relationships
+  enrollments   Enrollment[]
+  attendances   Attendance[]
+  submissions   Submission[]
+  quizAttempts  QuizAttempt[]
+  studyPlans    StudyPlan[]
+  gamification  GamificationProfile?
+  studentDoubts DoubtQuery[]        @relation("StudentDoubts")
+  teacherDoubts DoubtQuery[]        @relation("TeacherDoubts")
+
+  // Messages
+  sentMessages     Message[] @relation("SentMessages")
+  receivedMessages Message[] @relation("ReceivedMessages")
+}
+
+model Class {
+  id          String       @id @default(cuid())
+  name        String
+  subject     String
+  code        String       @unique
+  gradeLevel  String
+  teacherId   String
+  teacher     User         @relation("TeacherClasses", fields: [teacherId], references: [id], onDelete: Cascade)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  enrollments Enrollment[]
+  attendances Attendance[]
+  assignments Assignment[]
+  quizzes     Quiz[]
+  messages    Message[]
+}
+
+model Enrollment {
+  id        String   @id @default(cuid())
+  studentId String
+  classId   String
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  class     Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  joinedAt  DateTime @default(now())
+
+  @@unique([studentId, classId])
+}
+
+model Attendance {
+  id        String           @id @default(cuid())
+  classId   String
+  studentId String
+  date      DateTime         @default(now())
+  status    AttendanceStatus @default(PRESENT)
+
+  class     Class            @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student   User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([classId, date])
+}
+
+model Assignment {
+  id          String       @id @default(cuid())
+  classId     String
+  title       String
+  description String       @db.Text
+  dueDate     DateTime
+  maxScore    Int          @default(100)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  class       Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  assignmentId String
+  studentId    String
+  content      String?          @db.Text
+  fileUrl      String?
+  score        Int?
+  feedback     String?          @db.Text
+  status       SubmissionStatus @default(SUBMITTED)
+  submittedAt  DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  assignment   Assignment       @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student      User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([assignmentId, studentId])
+}
+
+model StudyPlan {
+  id            String   @id @default(cuid())
+  studentId     String
+  subject       String
+  targetGoal    String
+  scheduleJson  String   @db.Text
+  progress      Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  student       User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+model Quiz {
+  id            String        @id @default(cuid())
+  classId       String?
+  creatorId     String
+  title         String
+  topic         String
+  questionsJson String        @db.Text
+  createdAt     DateTime      @default(now())
+
+  class         Class?        @relation(fields: [classId], references: [id], onDelete: SetNull)
+  creator       User          @relation("TeacherQuizzes", fields: [creatorId], references: [id], onDelete: Cascade)
+  attempts      QuizAttempt[]
+}
+
+model QuizAttempt {
+  id          String   @id @default(cuid())
+  quizId      String
+  studentId   String
+  score       Int
+  totalScore  Int
+  answersJson String   @db.Text
+  completedAt DateTime @default(now())
+
+  quiz        Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  student     User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+model GamificationProfile {
+  id               String   @id @default(cuid())
+  studentId        String   @unique
+  points           Int      @default(150)
+  streakCount      Int      @default(1)
+  consistencyScore Int      @default(85)
+  badgesJson       String   @db.Text
+  updatedAt        DateTime @updatedAt
+
+  student          User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+model DoubtQuery {
+  id          String      @id @default(cuid())
+  studentId   String
+  teacherId   String?
+  subject     String
+  question    String      @db.Text
+  aiAnswer    String?     @db.Text
+  teacherNote String?     @db.Text
+  status      DoubtStatus @default(OPEN)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  student     User        @relation("StudentDoubts", fields: [studentId], references: [id], onDelete: Cascade)
+  teacher     User?       @relation("TeacherDoubts", fields: [teacherId], references: [id], onDelete: SetNull)
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String?
+  classId    String?
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
+
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User?    @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: SetNull)
+  class      Class?   @relation(fields: [classId], references: [id], onDelete: Cascade)
+}
+
+model Notice {
+  id         String   @id @default(cuid())
+  classId    String
+  className  String?
+  title      String
+  content    String   @db.Text
+  priority   String   @default("MEDIUM")
+  authorName String
+  authorRole String   @default("TEACHER")
+  createdAt  DateTime @default(now())
+}
